@@ -35,7 +35,9 @@ jobs:
 #        npm run build && \
 #        npm run docs
     - name: Package docker artifacts
-      run: tar -C ./rootfs -czf ./rootfs.tar.gz ./
+      run: |
+        if [ ! -d ./rootfs ]; then mkdir rootfs; fi && \
+        tar -C ./rootfs -czf ./rootfs.tar.gz ./
     - name: Upload docker artifacts
       uses: actions/upload-artifact@v2
       with:
