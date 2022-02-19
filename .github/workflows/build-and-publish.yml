@@ -95,3 +95,4 @@ jobs:
         password: ${{ secrets.DOCKER_PWD }}
         repository: ${{secrets.DOCKER_USERNAME}}/${{env.PKG_NAME}}
         readme-filepath: ./README.md
+        short-description: ${{ github.event.repository.description }}
