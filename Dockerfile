@@ -1,11 +1,11 @@
 FROM node:17-bullseye
+ENV DEBIAN_FRONTEND noninteractive
 
 # Applying fs patch for assets
 ADD rootfs.tar.gz /
 
 # Install stuff and remove caches
-RUN export DEBIAN_FRONTEND=noninteractive && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get -y upgrade && \
     apt-get install \
         --no-install-recommends \
