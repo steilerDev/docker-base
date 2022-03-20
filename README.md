@@ -16,7 +16,7 @@ The following paths are recommended for persisting state and/or accessing config
     Description on usage
 
 # docker-compose example
-Usage with `nginx-proxy` inside of predefined `steilerGroup` network.
+Usage with [`nginx-proxy`](https://github.com/nginx-proxy/nginx-proxy) and [`acme-companion`](https://github.com/nginx-proxy/acme-companion) inside of predefined `steilerGroup` network.
 
 ```
 version: '2'
