@@ -5,6 +5,9 @@ on: [push, pull_request]
 env:
   # This will pull the github repo name
   PKG_NAME: ${{ github.event.repository.name }}
+  PKG_AUTHOR: steilerdev
+  ARTIFACT_FILE: docker-image-artifact.tar.gz
+  ARTIFACT_NAME: docker-image
 #  NODE_VERSION: 17
 
 # Required secrets:
@@ -12,9 +15,7 @@ env:
 # DOCKER_DEV_USERNAME   Username for self-hosted docker registry
 # DOCKER_DEV_PWD        Password for self-hosted docker registry
 #
-# DOCKER_USERNAME       DockerHub username
 # DOCKER_PWD            DockerHub password
-
 
 jobs:
   build:
@@ -34,56 +35,50 @@ jobs:
 #        npm run test && \
 #        npm run build && \
 #        npm run docs
-    - name: Package docker artifacts
+    - name: Build docker images
       run: |
-        if [ -d ./rootfs ]; then
-          tar -C ./rootfs -czf ./rootfs.tar.gz ./
+        if [ -f Dockerfile ]; then
+          if [ -d ./rootfs ]; then
+            tar -C ./rootfs -czf ./rootfs.tar.gz ./
+          fi
+          docker build . --file Dockerfile --tag ${PKG_AUTHOR}/${PKG_NAME}:latest
+          docker save -o 
         else
           for d in */ ; do
             if [ -d ${d%/}/rootfs ]; then
               tar -C ${d%/}/rootfs -czf ${d%/}/rootfs.tar.gz ./
+              docker build ${d} --file ${d%/}/Dockerfile --tag ${PKG_AUTHOR}/${PKG_NAME}:${d%/}
             fi
           done
         fi
-    - name: Upload docker artifacts
+    - name: Package docker artifact
+      run: docker save ${PKG_AUTHOR}/${PKG_NAME} | gzip > ./$ARTIFACT_FILE
+    - name: Upload docker artifact
       uses: actions/upload-artifact@v2
       with:
-        name: rootfs
-        path: ./**/rootfs.tar.gz
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./${{ env.ARTIFACT_FILE }}
 
   publish-docker-dev:
     name: Publish Project to steilerGroup-Docker
     needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
     - name: Download artifacts
       uses: actions/download-artifact@v2
     - name: Login to Docker Registry
       run: docker login ${{secrets.DOCKER_DEV_HOST}} -u ${{secrets.DOCKER_DEV_USERNAME}} -p ${{secrets.DOCKER_DEV_PWD}}
-    - name: Build the Docker image
+    - name: Load the build artifact
+      run: docker load -i ${ARTIFACT_NAME}/${ARTIFACT_FILE}
+    - name: Re-tag for push to private repo
       run: |
-        if [ -f ./Dockerfile ]; then
-          if [ -f rootfs/rootfs.tar.gz ]; then
-            echo "Moving rootfs.tar.gz..."
-            mv rootfs/rootfs.tar.gz ./
-          fi
-          docker build . --file Dockerfile --tag ${{secrets.DOCKER_DEV_HOST}}/$PKG_NAME:latest
-        else
-          for d in */ ; do
-            if [ -f ${d%/}/Dockerfile ]; then
-              if [ -f rootfs/${d%/}/rootfs.tar.gz ]; then
-                echo "Moving rootfs.tar.gz..."
-                mv rootfs/${d%/}/rootfs.tar.gz ${d}
-              fi
-              docker build ${d} --file ${d%/}/Dockerfile --tag ${{secrets.DOCKER_DEV_HOST}}/$PKG_NAME:${d%/}
-            fi
-          done
-        fi
-        docker image ls
-    - name: Push to Docker Registry
-      run: docker image push --all-tags ${{secrets.DOCKER_DEV_HOST}}/$PKG_NAME
+        docker images --filter=reference="${PKG_AUTHOR}/${PKG_NAME}:*" -q | while read IMAGE_ID; do 
+          SOURCE_TAG="$(docker image inspect --format='{{println (index .RepoTags 0)}}' $IMAGE_ID)"
+          docker tag $IMAGE_ID ${{secrets.DOCKER_DEV_HOST}}/$SOURCE_TAG
+          echo "Re-tagged $SOURCE_TAG with ID $IMAGE_ID to ${{secrets.DOCKER_DEV_HOST}}/$SOURCE_TAG"
+        done
+    - name: Push to private repo
+      run: docker image push --all-tags ${{secrets.DOCKER_DEV_HOST}}/$PKG_AUTHOR/$PKG_NAME
 
   publish-dockerhub:
     name: Publish Project to DockerHub
@@ -96,33 +91,16 @@ jobs:
     - name: Download artifacts
       uses: actions/download-artifact@v2
     - name: Login to DockerHub
-      run: docker login -u ${{secrets.DOCKER_USERNAME}} -p ${{secrets.DOCKER_PWD}}
-    - name: Build the Docker image
-      run: |
-        if [ -f Dockerfile ]; then
-          if [ -f rootfs/rootfs.tar.gz ]; then
-            echo "Moving rootfs.tar.gz..."
-            mv rootfs/rootfs.tar.gz ./
-          fi
-          docker build . --file Dockerfile --tag ${{secrets.DOCKER_USERNAME}}/$PKG_NAME:latest
-        else
-          for d in */ ; do
-            if [ -f ${d%/}/Dockerfile ]; then
-              if [ -f rootfs/${d%/}/rootfs.tar.gz ]; then
-                mv rootfs/${d%/}/rootfs.tar.gz ${d}
-              fi
-              docker build ${d} --file ${d%/}/Dockerfile --tag ${{secrets.DOCKER_USERNAME}}/$PKG_NAME:${d%/}
-            fi
-          done
-        fi
-        docker image ls
+      run: docker login -u $PKG_AUTHOR -p ${{secrets.DOCKER_PWD}}
+    - name: Load the build artifact
+      run: docker load -i ${ARTIFACT_NAME}/${ARTIFACT_FILE}
     - name: Push to DockerHub
-      run: docker image push --all-tags ${{secrets.DOCKER_USERNAME}}/$PKG_NAME
+      run: docker image push --all-tags $PKG_AUTHOR/$PKG_NAME
     - name: Update DockerHub readme
       uses: peter-evans/dockerhub-description@v2
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
+        username: ${{ env.PKG_AUTHOR }}
         password: ${{ secrets.DOCKER_PWD }}
-        repository: ${{secrets.DOCKER_USERNAME}}/${{env.PKG_NAME}}
+        repository: ${{env.PKG_AUTHOR}}/${{env.PKG_NAME}}
         readme-filepath: ./README.md
         short-description: ${{ github.event.repository.description }}
